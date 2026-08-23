@@ -1,0 +1,34 @@
+name: Rebuild OCR Pipeline
+
+on:
+  workflow_dispatch:   # manual trigger
+  pull_request:        # run on every PR to validate pipeline output changes
+
+jobs:
+  rebuild:
+    runs-on: macos-15  # Apple Silicon (ARM64) — required for Apple Vision OCR Swift scripts
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true          # fetch any Git LFS objects (snapshots etc.)
+          fetch-depth: 1     # shallow clone — full history not needed
+
+      - name: Show runner info
+        run: |
+          uname -m
+          swift --version
+          python3 --version
+
+      - name: Run rebuild pipeline
+        run: ./rebuild_pipeline.sh
+
+      - name: Show diff summary
+        if: always()
+        run: git diff --stat
+
+      - name: Show full diff
+        if: always()
+        run: git --no-pager diff
