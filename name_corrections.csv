@@ -1,0 +1,18 @@
+field,wrong,correct
+# ── Ö/O confusion ──────────────────────────────────────────────────────────
+# OCR consistently misses Ö for these surnames; frequency-based normalization
+# cannot detect the error because the correct form never appears in the data.
+# Add new rows here whenever you find another systematic OCR miss.
+#
+# confirmed from 1998-014 screenshot:
+lastname,DORDER,DÖRDER
+lastname,DORFFEL,DÖRFFEL
+lastname,DORINGER,DÖRINGER
+# DOERING: extra 'E' OCR noise before the missing umlaut
+lastname,DOERING,DÖRING
+# ── J/O confusion in first names ───────────────────────────────────────────
+# OCR misreads 'J' as 'O' or misses the leading 'J' in JOHANN.
+firstname,OHANN,JOHANN
+# ── Cyrillic lookalike substitution aftermath ─────────────────────────────
+# BÖHME engraved on plate → OCR reads as Cyrillic ВОНМЕ → after Latin substitution: BOHME
+lastname,BOHME,BÖHME

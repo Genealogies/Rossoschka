@@ -1,0 +1,104 @@
+action,tafel,firstname,lastname,born,died
+# ── Missing death dates ──────────────────────────────────────────────────────
+# HERMANN FISCHER: death date +01.10.1942 was on the next line in OCR, separated
+# by an intervening JOSEF FISCHER entry — not fixable algorithmically.
+update,1998-021,HERMANN,FISCHER,31.07.1922,01.10.1942
+# FRIEDRICH SCHNEIDER: plate shows only +15.05.1942 (death-only).
+# OCR misread '+' as '-' and '1942' as '1922', creating a false born date.
+delete,2014-2016-477,FRIEDRICH,SCHNEIDER,15.05.1922,
+add,2014-2016-477,FRIEDRICH,SCHNEIDER,,15.05.1942
+# ── Completely garbled OCR — not algorithmically recoverable ─────────────────
+# SOMMERER: no firstname on plate; born '27051g3' is OCR noise — record doesn't exist.
+delete,1998-091,,SOMMERER,27051g3,27.11.1942
+# ANDRITSCHKE: born/died fused as '14+28011945' by OCR — true values from plate.
+# After parser splits the inline '+', born becomes '14' (bare) and died becomes '28.01.1945'.
+delete,1999-110,KURT WALTER,ANDRITSCHKE,14,
+add,1999-110,KURT WALTER,ANDRITSCHKE,04.04.1907,10.02.1945
+# FRANZ DEUTSCH: born '22.M.191T' has unresolvable M month + T year — true values from plate.
+delete,2006-2009-357,FRANZ,DEUTSCH,22.M,
+add,2006-2009-357,FRANZ,DEUTSCH,22.11.1911,23.12.1942
+# UECKER: died date '16.81982' is garbled OCR of '16.08.1942' (not algorithmically fixable).
+update,2014-2016-482,JOSEF,UECKER,21.02.1914,16.08.1942
+# ── WEBER (1998-102): OCR merged 'GERHARD HELMUT WEBER 22.08.1922' (two plate entries) ─────
+# Plate has: GERHARD WEBER *29.08.1923 +27.10.1942  AND  HELMUT WEBER *22.08.1922 +09.12.1942
+# Parser produced: (GERHARD HELMUT, WEBER, 22.08.1922) and (, WEBER, 29.08.1923, 27.10.1942)
+# Fix: delete both WEBER born=22.08.1922 records, re-add HELMUT, fix firstname on the other.
+delete,1998-102,,WEBER,22.08.1922,
+add,1998-102,HELMUT,WEBER,22.08.1922,09.12.1942
+update,1998-102,GERHARD,WEBER,29.08.1923,
+# MILDE (2006-2009-393): OCR read 'MIlDE' as 'MIt' + 'DE' (lowercase t split into separate token).
+# Parser assigned DE as lastname, HERBERT MIT as firstname.
+delete,2006-2009-393,HERBERT MIT,DE,13.07.1910,
+add,2006-2009-393,HERBERT,MILDE,13.07.1910,05.12.1942
+# ERSTLING: J→1 rule gives born=28.01.1913 but plate shows July (28.07.1913).
+delete,2014-2016-455,RUDOLF,ERSTLING,28.01.1913,
+add,2014-2016-455,RUDOLF,ERSTLING,28.07.1913,21.09.1942
+# SÖHNER + SOKOP (2014-2016-479): OCR fused both entries into one garbled token.
+# 'WIE SE2551918121942RANSO291191927.1.1943' — not algorithmically recoverable.
+add,2014-2016-479,WILHELM,SÖHNER,25.05.1913,08.12.1942
+add,2014-2016-479,FRANZ,SOKOP,29.01.1919,31.01.1942
+# ── Merged/split OCR entries ─────────────────────────────────────────────────
+# CZESLA (2006-2009-357): OCR read death date as separate 'TO. 12.1942' token.
+# Raw: 'GUSTAV CZESLA 24.17.1905 + TO. 12.1942' — TO is noise, death date is 10.12.1942.
+update,2006-2009-357,GUSTAV,CZESLA,24.17.1905,10.12.1942
+delete,2006-2009-357,,TO,12.1942,
+# ── Missing records ───────────────────────────────────────────────────────────
+# PAUL KLOTZ (2006-2009-381): record not produced by OCR parser.
+add,2006-2009-381,PAUL,KLOTZ,12.08.1920,08.08.1942
+# HANS LANGE (2006-2009-387): record not produced by OCR parser.
+add,2006-2009-387,HANS,LANGE,1922,12.11.1944
+# ── First name split across line break ───────────────────────────────────────
+# GRAUPNER (2014-2016-458): 'FRITZ' ended the previous OCR line as '...-FRITZ\nGRAUPNER'.
+# The hyphen detached FRITZ from GRAUPNER so the parser saw no firstname.
+update,2014-2016-458,FRITZ,GRAUPNER,30.05.1909,
+# NIEMUTH (2006-2009-396): OCR produced ',DB,11.1942' — completely garbled.
+# True values from plate: LOTHAR NIEMUTH *26.12.1911 +08.11.1942.
+delete,2006-2009-396,,DB,11.1942,
+add,2006-2009-396,LOTHAR,NIEMUTH,26.12.1911,08.11.1942
+# WALTER WOLF (2006-2009-427): OCR split name from dates across line break — parser lost him.
+# True values from plate: WALTER WOLF *24.05.1914 +21.12.1942.
+add,2006-2009-427,WALTER,WOLF,24.05.1914,21.12.1942
+# 2006-2009-393: OCR noise block 'XAR2.1902 NZ NIC AEIS 120C6 CURER MIGRAIN DXHA' is garbled.
+# Delete the 3 spurious records it produced.
+delete,2006-2009-393,,XAR,02.1902,
+delete,2006-2009-393,NZ NIC,AEIS,120C6,
+delete,2006-2009-393,CURER MIGRAIN,DXHA,,
+# MEELENTHIN: OCR split 'MEELENTHIN' into 'MEELEN' (firstname) + 'THIN' (lastname).
+# Fix it so the insertion algorithm sees the correct alphabetical position.
+delete,2006-2009-393,OTTO MEELEN,THIN,12.05.1913,
+add,2006-2009-393,OTTO,MEELENTHIN,12.05.1913,16.08.1942
+# The garbled block covered 5 real entries between MEYLAHN and MICHEL — add them back.
+# KARL METZGER: note born/died as given; "01.19.1942" had impossible month → interpreted as 19.01.1942
+add,2006-2009-393,KARL,METZGER,27.04.1898,19.01.1942
+add,2006-2009-393,ALFRED,MICHAEL,03.03.1903,28.03.1946
+add,2006-2009-393,HERMANN,MICHAEL,04.02.1908,10.12.1942
+add,2006-2009-393,FRANZ,MICHAELIS,12.02.1906,04.10.1944
+add,2006-2009-393,GUNTER,MICHAELIS,07.10.1923,20.04.1947
+# ÖHLSCHLAGER/OEHME/OEHRING (2006-2009-397): parser fused 'ÖHLSCHLÄGER FERDINAND'
+# into OEHME's firstname; OBERREUTHER missing; OEHRING missing firstname + wrong year.
+# Delete the two garbled records and re-add all four correctly.
+delete,2006-2009-397,JOHANN ÖHLSCHLÄGER FERDINAND,OEHME,04.12.1908,
+delete,2006-2009-397,,OEHRING,05.11.1920,
+add,2006-2009-397,JOHANN HEINRICH,OBERREUTHER,04.05.1901,
+add,2006-2009-397,WALTER,ÖHLSCHLAGER,18.07.1921,30.07.1942
+add,2006-2009-397,FERDINAND,OEHME,04.12.1908,07.12.1942
+add,2006-2009-397,KARL HEINZ,OEHRING,05.11.1921,02.01.1943
+# WALTER GLAZ (2014-2016-458): OCR read 'WALTE LAZ29.1922512.1942' — missing R and G.
+add,2014-2016-458,WALTER,GLAZ,27.09.1922,05.12.1942
+# GOTTPRIED/ARTUR GÖTZ/FRANZ GÖTZ (2014-2016-458): garbled OCR line
+# '22910222 ARTUR 161 0 1511945. FRANZ COTZ 126126 H99192' covers 3 records.
+delete,2014-2016-458,ROLF,GOTTPRIED,22910222,
+delete,2014-2016-458,,ARTUR,161,
+delete,2014-2016-458,FRANZ,COTZ,126126,
+add,2014-2016-458,ROLF,GOTTPRIED,22.09.1922,23.01.1943
+# GOTTSCHALK and GOTTWALD: not in raw OCR (garbled section) but real plate entries.
+add,2014-2016-458,HERBERT,GOTTSCHALK,20.12.1915,05.12.1942
+add,2014-2016-458,HERBERT,GOTTWALD,26.11.1910,07.10.1942
+add,2014-2016-458,ARTUR,GÖTZ,01.06.1900,15.01.1943
+add,2014-2016-458,FRANZ,GÖTZ,21.06.1926,09.09.1942
+# PÖNITZ (2006-2009-400): OCR fused 'PÖN/TZ10.02.1920' — slash replaced I, date merged with name.
+add,2006-2009-400,RUDOLF,PÖNITZ,10.02.1920,21.07.1942
+# GALLMANN (2014-2016-457): OCR misread ARNOLD as ALBERT; died date missing.
+update,2014-2016-457,ARNOLD,GALLMANN,14.01.1922,29.12.1942
+# GARBERS (2014-2016-457): firstname not parsed — OCR line break before firstname.
+update,2014-2016-457,ALBERT,GARBERS,19.10.1909,26.09.1942
