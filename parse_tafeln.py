@@ -20,6 +20,7 @@ import os
 import re
 import csv
 import sys
+import unicodedata
 
 TEXT_DIR    = "rossoschka_text_vision"
 TAFELN_DIR  = "rossoschka_tafeln"
@@ -56,9 +57,54 @@ def clean_date(raw: str) -> str:
     m = re.match(r'(\d{1,2})[.:,\-](\d{1,2})[.:,\-](\d{2})$', raw)
     if m:
         return f"{int(m.group(1)):02d}.{int(m.group(2)):02d}.19{m.group(3)}"
+    # Spurious leading digit (OCR misread of '+' or engraving dot as a digit):
+    # '421.12.1942' → '21.12.1942'.  Three digits before first separator = always noise.
+    m = re.match(r'\d(\d{1,2}[.:,\-]\d{1,2}[.:,\-]\d{4})$', raw)
+    if m and len(m.group(0)) > len(m.group(1)):   # only strip when the leading digit was extra
+        return clean_date(m.group(1))
+    # Fused day+month before year separator: 'DDM.YYYY' → 'DD.M.YYYY'
+    # e.g. '141.1917' = '14.1.1917' (day 14, month 1, year 1917)
+    m = re.match(r'(\d{2})(\d)[.:,\-]((?:19|20)\d{2})$', raw)
+    if m:
+        return clean_date(f"{m.group(1)}.{m.group(2)}.{m.group(3)}")
+    # Fused month+year after day separator: 'DD.MMYYYY' → 'DD.MM.YYYY'
+    # e.g. '20.071911' = '20.07.1911' (day 20, month 07, year 1911)
+    m = re.match(r'(\d{1,2})[.:,\-](\d{2})(\d{4})$', raw)
+    if m:
+        return f"{int(m.group(1)):02d}.{int(m.group(2)):02d}.{m.group(3)}"
+    # Fused single-digit month+year: 'DD.MYYYY' → 'DD.MM.YYYY'
+    # e.g. '10.91942' = '10.09.1942' (day 10, month 9, year 1942)
+    m = re.match(r'(\d{1,2})[.:,\-](\d)((?:19|20)\d{2})$', raw)
+    if m:
+        return f"{int(m.group(1)):02d}.{int(m.group(2)):02d}.{m.group(3)}"
+    # OCR year-dot noise: 'MM.Y.YYY' → 'MM.YYYY' (e.g. '02.1.943' → '02.1943')
+    m = re.match(r'(\d{1,2})[.:,\-](\d)\.(\d{3})$', raw)
+    if m:
+        return clean_date(f"{m.group(1)}.{m.group(2)}{m.group(3)}")
+    # Partial date: MM.YYYY (month + year only, no day engraved on plate)
+    m = re.match(r'(\d{1,2})[.:,\-]((?:19|20)\d{2})$', raw)
+    if m:
+        month_val = int(m.group(1))
+        if month_val > 12 and len(m.group(1)) == 2:
+            # Fused day+month with dot dropped: '61.1908' = '6.1.1908'
+            return clean_date(f"{m.group(1)[0]}.{m.group(1)[1]}.{m.group(2)}")
+        return f"{month_val:02d}.{m.group(2)}"
     m = re.match(r'((?:19|20)\d{2})$', raw)
     if m:
         return m.group(1)
+    # OCR year with embedded separator: 'DD.MM.YY-D' → 'DD.MM.YY0D' for correction later
+    # e.g. '05.12.19-2' → '05.12.1902' → correct_died_year fixes 1902 → 1942
+    m = re.match(r'(\d{1,2})[.:,\-](\d{1,2})[.:,\-](\d{2})[.:,\-](\d)$', raw)
+    if m:
+        return clean_date(f"{m.group(1)}.{m.group(2)}.{m.group(3)}0{m.group(4)}")
+    # Fused DDMM.YYYY (4 digits before separator): '0904.1909' → '09.04.1909'
+    m = re.match(r'(\d{2})(\d{2})[.:,\-]((?:19|20)\d{2})$', raw)
+    if m:
+        return clean_date(f"{m.group(1)}.{m.group(2)}.{m.group(3)}")
+    # Fully fused DDMMYYYY (no separators): '29011922' → '29.01.1922'
+    m = re.match(r'(\d{2})(\d{2})((?:19|20)\d{2})$', raw)
+    if m:
+        return clean_date(f"{m.group(1)}.{m.group(2)}.{m.group(3)}")
     # OCR sometimes inserts a comma inside a digit pair, e.g. '3,0.07.1912' for '30.07.1912'.
     # Only collapse when the digit after the comma is NOT followed by a letter (which would
     # mean the comma is a legitimate separator, not noise inside a number).
@@ -122,12 +168,163 @@ def parse_text(text: str) -> list[dict]:
       death date.
     """
 
-    # Flatten into single space-separated string, remove newlines
-    flat = ' '.join(text.split())
+    # Repair line-wrap: a line that starts with a death-date marker (+) is a
+    # continuation of the last person on the previous line — the plate engraver
+    # ran out of space and put the death date at the start of the next row.
+    # Move that token to the end of the previous line before flattening.
+    _DEATH_LINE_START = re.compile(
+        r'^([+\-÷]\d{1,2}[.:,\-]\d{1,2}[.:,\-]\d{2,4}'  # +/-/÷ DD.MM.YYYY / DD.MM.YY
+        r'|[+\-÷]\d{1,2}[.:,\-]\d{2}\d{4}'               # +/-/÷ DD.MMYYYY (fused month+year)
+        r'|[+\-÷]\d{1,2}\.(?:19|20)\d{2}'                 # +/-/÷ MM.YYYY
+        r'|[+\-÷](?:19|20)\d{2})'                          # +/-/÷ YYYY bare year
+    )
+    raw_lines = text.splitlines()
+    repaired_lines: list[str] = []
+    for line in raw_lines:
+        stripped = line.strip()
+        # Normalize common OCR misreads of '+' at line start so _DEATH_LINE_START fires:
+        #  '€7.1.1943'       → '+7.1.1943'   (Euro sign = OCR for +)
+        #  '+ 28.12 1942'    → '+28.12.1942' (space after prefix + space-in-date)
+        stripped = re.sub(r'^€(\d)', r'+\1', stripped)
+        stripped = re.sub(r'^([+\-÷])\s+(\d)', r'\1\2', stripped)
+        stripped = re.sub(r'^([+\-÷]\d{1,2}\.\d{1,2})\s+(\d{4})\b', r'\1.\2', stripped)
+        m = _DEATH_LINE_START.match(stripped)
+        if m and repaired_lines:
+            # Attach death date to the previous line
+            repaired_lines[-1] = repaired_lines[-1] + ' ' + m.group(1)
+            # Keep the rest of this line (next entries after the separator)
+            remainder = stripped[m.end():].lstrip(' -–').strip()
+            if remainder:
+                repaired_lines.append(remainder)
+        else:
+            repaired_lines.append(stripped)
+
+    # Flatten into single space-separated string
+    flat = ' '.join(' '.join(repaired_lines).split())
+
+    # Replace Cyrillic lookalike characters with their Latin equivalents.
+    # OCR engines sometimes confuse Latin capital letters with visually identical
+    # Cyrillic ones (e.g. BÖHME engraved → ВОНМЕ OCR'd). All Cyrillic here is noise.
+    flat = flat.translate(str.maketrans(
+        'АВЕКМНОРСТХавекмнорстх',
+        'ABEKMHOPCTXabekmnopctx'
+    ))
+
+    # Normalize OCR-artifact accented letters that are not German umlauts.
+    # e.g. 'Í' (U+00CD, acute I) → 'I', while Ä/Ö/Ü are preserved.
+    # Strategy: NFD-decompose, drop all combining marks except diaeresis (U+0308),
+    # then NFC-recompose to restore proper Ä/Ö/Ü.
+    flat = unicodedata.normalize('NFC', ''.join(
+        c for c in unicodedata.normalize('NFD', flat)
+        if unicodedata.category(c) != 'Mn' or c == '\u0308'
+    ))
+
+    # Fix OCR letter→digit confusion inside year positions of date strings.
+    # Pattern: after DD.MM. the year's first digit is sometimes a letter.
+    #   T / I / l → 1  (vertical strokes misread as digits)
+    #   O          → 0  (round letter misread as zero)
+    flat = re.sub(r'(\d{1,2}[.:,\-]\d{1,2}[.:,\-])[Tl](\d{3})', r'\g<1>1\2', flat)
+    flat = re.sub(r'(\d{1,2}[.:,\-]\d{1,2}[.:,\-])I(\d{3})',    r'\g<1>1\2', flat)
+    flat = re.sub(r'(\d{1,2}[.:,\-]\d{1,2}[.:,\-])O(\d{3})',    r'\g<1>0\2', flat)
+    # T/I in the DAY position: 'T0:08.1942' → '10:08.1942'
+    flat = re.sub(r'(?<![A-ZÄÖÜ])T(\d[.:,\-]\d{1,2}[.:,\-]\d{4})', r'1\1', flat)
+    flat = re.sub(r'(?<![A-ZÄÖÜ])I(\d[.:,\-]\d{1,2}[.:,\-]\d{4})', r'1\1', flat)
+
+    # '$' is misread by OCR for '5' in some fonts; fix before other date processing.
+    # e.g. '$.3.1911' → '5.3.1911'  (KAHRS plate: $.3.1911 = 5.3.1911)
+    flat = re.sub(r'\$([.:,\-\d])', r'5\1', flat)
+
+    # 'FO' is an OCR misread for '10' when appearing in a date position
+    # (F=1, O=0 in some optical fonts). Only fire when not preceded by an uppercase letter
+    # (i.e., not inside a name token) and followed by a date separator.
+    # e.g. '08. FO.1910' → '08. 10.1910' → then the space-repair rule gives '08.10.1910'
+    flat = re.sub(r'(?<![A-ZÄÖÜ])FO([.:,\-])', r'10\1', flat)
+
+    # Replace OCR misreads of '+' as death-date prefix:
+    #   '€' (Euro sign) and '=' before a date digit → '+'
+    flat = re.sub(r'€(\d)', r'+\1', flat)
+    flat = re.sub(r'=(\d{1,2}[.:,\-])', r'+\1', flat)
+
+    # Fix OCR letter-for-digit in the MONTH position of DD.MM.YYYY
+    # (must run before the name.date split below so the dot isn't stripped first).
+    # Pattern: DD-sep-partial_digit_LETTER-sep-YYYY
+    #   '22.0M.1906' → '22.04.1906'  (M looks like 4)
+    #   '22.0T.1922' → '22.01.1922'  (T looks like 1)
+    #   '04.1T.1919' → '04.11.1919'  (T as second month digit)
+    #   '19.1J.1922' → '19.11.1922'  (J looks like 1)
+    flat = re.sub(r'(\d{1,2}[.:,\-]\d)M([.:,\-]\d{4})', r'\g<1>4\2', flat)
+    flat = re.sub(r'(\d{1,2}[.:,\-]\d)T([.:,\-]\d{4})', r'\g<1>1\2', flat)
+    flat = re.sub(r'(\d{1,2}[.:,\-]\d)J([.:,\-]\d{4})', r'\g<1>1\2', flat)
+    # Fix OCR letter-for-digit as full single-digit MONTH (before next separator + year):
+    #   '17.J.1915' → '17.1.1915'  (J looks like 1 = January)
+    #   '23.Z.1922' → '23.7.1922'  (Z looks like 7 = July)
+    flat = re.sub(r'(\d{1,2}[.:,\-])J([.:,\-](?:19|20)\d{2})', r'\g<1>1\2', flat)
+    flat = re.sub(r'(\d{1,2}[.:,\-])Z([.:,\-](?:19|20)\d{2})', r'\g<1>7\2', flat)
+    # Fix OCR letter-for-digit in the DAY or first-part of date (before first separator):
+    #   '0Z.1943' → '02.1943'  (Z looks like 2 as second day/month digit)
+    #   '0S.03.1919' → '05.03.1919'  (S looks like 5)
+    #   '2G.8.1905' → '26.8.1905'  (G looks like 6 as second day digit)
+    #   'OS:08,1914' → '05:08,1914'  (O looks like 0, S looks like 5 — must run before S→5)
+    flat = re.sub(r'(?<![A-ZÄÖÜ\d])O([S\d][.:,\-])', r'0\1', flat)
+    flat = re.sub(r'(\d)Z([.:,\-])', r'\g<1>2\2', flat)
+    flat = re.sub(r'(\d)S([.:,\-])', r'\g<1>5\2', flat)
+    flat = re.sub(r'(\d)G([.:,\-])', r'\g<1>6\2', flat)
+
+    # Split name token directly fused with a year: 'MULLER1898' → 'MULLER 1898'
+    flat = re.sub(r'([A-ZÄÖÜ]{3,})((?:18|19|20)\d{2})(?=[\s+\-÷]|$)', r'\1 \2', flat)
+
+    # Split name token fused with start of date digits: 'RAABE15.09.1' → 'RAABE 15.09.1'
+    # Must run AFTER name+year split so MULLER1898 doesn't also match here.
+    flat = re.sub(r'([A-ZÄÖÜ]{3,})(\d{1,2})([.:,\-]\d)', r'\1 \2\3', flat)
+
+    # Split name token connected to date digits via a hyphen (OCR noise for blank space):
+    # e.g. 'TAUSCH-0904.1909' → 'TAUSCH 0904.1909'
+    # Only fires when the char after the hyphen is a digit (preserves NAME-NAME hyphenation).
+    flat = re.sub(r'([A-ZÄÖÜ]{3,})-(\d)', r'\1 \2', flat)
+
+    # Rejoin a year split across a space after the leading '1': '15.09.1 23' → '15.09.1923'
+    flat = re.sub(r'(\d{1,2}\.\d{1,2}\.1)\s+(\d{2})(?=\s|$)', r'\g<1>9\2', flat)
+
+    # Fix T/I OCR as second digit of day: '1T.08.1913' → '11.08.1913'
+    # Must run BEFORE the LETTER.digit split below, otherwise '1T.08.1913' → '1T 08.1913'.
+    flat = re.sub(r'(\d)T([.:,\-]\d{1,2}[.:,\-]\d{4})', r'\g<1>1\2', flat)
+    flat = re.sub(r'(\d)I([.:,\-]\d{1,2}[.:,\-]\d{4})', r'\g<1>1\2', flat)
+    # Fix T/I OCR as single-character month: '9.T.1914' → '9.1.1914'
+    flat = re.sub(r'(\d{1,2}[.:,\-])T([.:,\-](?:19|20)\d{2})', r'\g<1>1\2', flat)
+    flat = re.sub(r'(\d{1,2}[.:,\-])I([.:,\-](?:19|20)\d{2})', r'\g<1>1\2', flat)
+
+    # Split NAME.DATE fusions where a letter is immediately followed by '.digit':
+    # e.g. 'BISHOP.12.06.1920' → 'BISHOP 12.06.1920'
+    flat = re.sub(r'([A-ZÄÖÜ])\.(\d)', r'\1 \2', flat)
 
     # Repair OCR split-date: NAME directly fused with day digits, month+year in next token.
     # e.g. 'GROHMANN15 03.1921' → 'GROHMANN 15.03.1921'
     flat = re.sub(r'([A-ZÄÖÜSS]{2,})(\d{1,2})\s+(\d{1,2}[.:]\d{4})', r'\1 \2.\3', flat)
+
+    # Repair date split by a space after the day-dot: '07. 4.1909' → '07.4.1909'
+    # Caused by OCR inserting a space after the dot (dirt/scratch on the plate).
+    # The (?<!\d) lookbehind prevents this from fusing two separate adjacent dates,
+    # e.g. '1914. 15.06.1942' must NOT become '1914.15.06.1942'.
+    flat = re.sub(r'(?<!\d)(\d{1,2})\.\s+(\d{1,2}[.:,\-]\d{2,4})', r'\1.\2', flat)
+
+    # Repair 'DD.MM. YYYY' → 'DD.MM.YYYY' (space before 4-digit year after second dot)
+    flat = re.sub(r'(\d{1,2}\.\d{1,2})\.\s+(\d{4})\b', r'\1.\2', flat)
+
+    # Repair 'DD.MM YYYY' → 'DD.MM.YYYY' (space replaces final dot)
+    flat = re.sub(r'(\d{1,2}\.\d{1,2})\s+(\d{4})(?!\d)', r'\1.\2', flat)
+
+    # Repair date with missing day-dot: '21 12,1920' → '21.12,1920' (space instead of dot)
+    # Matches: 1-2 digit day, space, 1-2 digit month + separator + 4-digit year.
+    flat = re.sub(r'(?<!\d)(\d{1,2})\s+(\d{1,2}[.,\-]\d{4})(?!\d)', r'\1.\2', flat)
+
+    # Repair OCR trailing '1' misread as 'I' in all-uppercase name tokens: 'NAWAROTZK1' → 'NAWAROTZKI'
+    flat = re.sub(r'([A-ZÄÖÜ]{2,})1(?=\s|$)', r'\1I', flat)
+
+    # Split digit_NAME fusions: '1942_ADOLF' → '1942 ADOLF' (underscore between date and next name)
+    flat = re.sub(r'(\d)_([A-ZÄÖÜ])', r'\1 \2', flat)
+
+    # Repair fused NAME•DATE: OCR bullet between a name and a date (e.g. 'MANNSEE•23.02.1914')
+    flat = re.sub(r'([A-ZÄÖÜ])•(\d)', r'\1 \2', flat)
 
     # Split into tokens preserving them
     raw_tokens = re.split(r'\s+', flat)
@@ -135,7 +332,7 @@ def parse_text(text: str) -> list[dict]:
     # Annotate each token
     tokens = []
     for t in raw_tokens:
-        t = t.strip(',;|\\()[]{}')
+        t = t.strip(',;:|\\()[]{}•_')   # • is OCR bullet noise; _ is OCR noise between tokens
         if not t:
             continue
         # OCR sometimes fuses two name words with a comma or dot: "RICHARD,ARNDT", "ANTON.CUMA"
@@ -154,11 +351,20 @@ def parse_text(text: str) -> list[dict]:
     n = len(tokens)
 
     def looks_like_date(tok):
-        tok = tok.lstrip('.+*')
+        tok = tok.lstrip('.+*-÷').rstrip('.,*-÷')
         return bool(re.match(
-            r'\d{1,2}[.:,\-]\d{1,2}[.:,\-]\d{4}'
-            r'|\d{1,2}[.:,\-]\d{1,2}[.:,\-]\d{2}$'
-            r'|(?:19|20)\d{2}$',
+            r'\d{1,2}[.:,\-]\d{1,2}[.:,\-]\d{4}'   # DD.MM.YYYY
+            r'|\d{1,2}[.:,\-]\d{1,2}[.:,\-]\d{2}$'  # DD.MM.YY
+            r'|(?:19|20)\d{2}$'                       # bare YYYY
+            r'|\d{1,2}[.:,\-](?:19|20)\d{2}$'        # MM.YYYY partial (any separator)
+            r'|\d{1,2}[.:,\-]\d{2}\d{4}$'            # DD.MMYYYY (fused month+year)
+            r'|\d{1,2}[.:,\-]\d(?:19|20)\d{2}$'      # DD.MYYYY (single-digit month fused)
+            r'|\d{2}\d[.:,\-](?:19|20)\d{2}$'        # DDM.YYYY (fused day+month)
+            r'|\d{1,2}\.\d{1}\.\d{3}$'               # MM.Y.YYY OCR noise
+            r'|\d{3}[.:,\-]\d{1,2}[.:,\-]\d{4}'     # 3-digit prefix = spurious leading char
+            r'|\d{1,2}[.:,\-]\d{1,2}[.:,\-]\d{2}[.:,\-]\d$'  # DD.MM.YY-D (dash in year)
+            r'|\d{4}[.:,\-](?:19|20)\d{2}$'           # DDMM.YYYY (fused, no inner dot)
+            r'|\d{4}(?:19|20)\d{2}$',                  # DDMMYYYY (fully fused, no separators)
             tok
         ))
 
@@ -172,12 +378,24 @@ def parse_text(text: str) -> list[dict]:
 
         # Collect name words until we hit a date
         names = []
-        while i < n and not looks_like_date(tokens[i].lstrip('.+*')):
+        while i < n and not looks_like_date(tokens[i].lstrip('.+*-÷')):
             word = tokens[i].strip('.+*,')
-            if is_name_token(word):
+            # Normalize OCR mixed-case name tokens: 'jOHANNES' → 'JOHANNES'
+            if word and not any(c.isdigit() for c in word):
+                word = word.upper()
+            if word in ('DR', 'DR.'):
+                # Check whether the next token is MED/JUR → DR.MED. / DR.JUR. compound title
+                next_word = tokens[i + 1].strip('.+*,:') if i + 1 < n else ''
+                if next_word in ('MED', 'MED.'):
+                    names.append('DR.MED.')
+                    i += 1   # consume MED; outer i+=1 moves past it
+                elif next_word in ('JUR', 'JUR.'):
+                    names.append('DR.JUR.')
+                    i += 1   # consume JUR; outer i+=1 moves past it
+                else:
+                    names.append('DR.')   # plain DR. title
+            elif is_name_token(word):
                 names.append(word)
-            elif word in ('DR', 'PROF'):
-                pass  # skip titles
             elif len(word) == 1 and word.isalpha() and word.isupper() and names:
                 # Single uppercase letter after names = OCR split one word in two
                 # e.g. 'ALO S DZIENDZIEL' where 'ALOIS' was read as 'ALO S'
@@ -194,8 +412,8 @@ def parse_text(text: str) -> list[dict]:
         # Now tokens[i] is the first date token after the name.
         # A leading '+' means the plate shows *only* a death date (no birth date).
         raw_tok   = tokens[i]
-        has_death_prefix = raw_tok.lstrip('.').startswith('+')
-        date_raw  = raw_tok.lstrip('.+*').strip(',')
+        has_death_prefix = raw_tok.lstrip('.').startswith(('+', '÷'))
+        date_raw  = raw_tok.lstrip('.+*-÷').strip('.,*-÷')
         first_date = clean_date(date_raw)
         i += 1
 
@@ -213,16 +431,22 @@ def parse_text(text: str) -> list[dict]:
             # Plate records only the death date for this soldier (no birth date engraved)
             born = ''
             died = first_date
+            # Edge case: OCR/line-wrap puts born date AFTER the death date (next line).
+            # If the next token is a plain date (no death prefix), treat it as born.
+            if i < n and looks_like_date(tokens[i].lstrip('.+*-÷')):
+                if not tokens[i].lstrip('.').startswith(('+', '÷')):
+                    born = clean_date(tokens[i].lstrip('.+*-÷').strip('.,*-÷'))
+                    i += 1
         else:
             born = first_date
-            # Skip any separator tokens (+, -, .) between born and died
-            while i < n and re.match(r'^[+\-\.]+$', tokens[i]):
+            # Skip any separator tokens (+, -, ., *) between born and died
+            while i < n and re.match(r'^[+\-\.\*]+$', tokens[i]):
                 i += 1
 
             # Next date-like token is the death date
             died = inline_died
-            if not died and i < n and looks_like_date(tokens[i].lstrip('.+*')):
-                died = clean_date(tokens[i].lstrip('.+*').strip('.,'))
+            if not died and i < n and looks_like_date(tokens[i].lstrip('.+*-÷')):
+                died = clean_date(tokens[i].lstrip('.+*-÷').strip('.,'))
                 i += 1
 
         # Split names: last word = surname, rest = firstname(s)

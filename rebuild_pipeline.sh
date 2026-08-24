@@ -14,6 +14,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+START_TIME=$(date +%s)
+
 echo "=== Step 1: Deleting derived directories ==="
 rm -rf rossoschka_tafeln_text rossoschka_tafeln_textlist rossoschka_text_vision
 echo "  Deleted: rossoschka_tafeln_text, rossoschka_tafeln_textlist, rossoschka_text_vision"
@@ -42,3 +44,6 @@ echo "  rossoschka_tafeln_text/   : $(ls rossoschka_tafeln_text | wc -l | tr -d 
 echo "  rossoschka_text_vision/   : $(ls rossoschka_text_vision | wc -l | tr -d ' ') files"
 echo "  rossoschka_tafeln_textlist/: $(ls rossoschka_tafeln_textlist | wc -l | tr -d ' ') files"
 echo "  rossoschka_merged.csv     : $(tail -n +2 rossoschka_merged.csv | wc -l | tr -d ' ') records"
+
+ELAPSED=$(( $(date +%s) - START_TIME ))
+printf "  Elapsed                   : %d min %02d sec\n" $(( ELAPSED / 60 )) $(( ELAPSED % 60 ))

@@ -52,7 +52,7 @@ PF_FIELDNAMES = ['tafel', 'firstname', 'lastname', 'born', 'died']   # no source
 
 # Valid lastname: 3+ uppercase letters (German alphabet), optional hyphen
 # Also accepts U+0130 (İ) and other OCR-introduced Unicode variants
-VALID_LAST = re.compile(r'^[A-ZÄÖÜÉSS\-\u0130\u00C9\u00C0\u00C8]{3,}$')
+VALID_LAST = re.compile(r'^[A-ZÄÖÜÉSS\-\u0130\u00C9\u00C0\u00C8]{2,}$')
 
 _SPECIAL_NAME_CHARS = str.maketrans({
     'ß': 'SS', 'ẞ': 'SS',
@@ -430,6 +430,10 @@ def is_clean(r: dict) -> bool:
         # Accept pure digit/separator fragments (OCR-truncated date)
         if re.match(r'^[\d.\-:/]{1,10}$', val):
             continue
+        # Accept OCR-garbled date fragments that start with a digit and are short
+        # (e.g. '1OA44', '190%' — clearly a date mangled by OCR noise, not a name)
+        if val[0].isdigit() and len(val) <= 12:
+            continue
         return False
     return True
 
@@ -517,8 +521,17 @@ def load_system(directory: str) -> dict[str, list[dict]]:
 # ---------------------------------------------------------------------------
 
 def record_key(r: dict) -> tuple:
-    """Stable identity key for a person record."""
-    return (r['lastname'].upper(), r['born'])
+    """Stable identity key for a person record.
+
+    When born is a bare year (YYYY), multiple people may share the same
+    lastname+year combination.  In that case, include the died date so
+    that GEORG/SCHULZ/1901/01.11.1944, JOHANNES/SCHULZ/1901/23.11.1944
+    and WILLI/SCHULZ/1901/07.11.1944 are treated as distinct records.
+    """
+    born = r['born']
+    if re.match(r'^(?:18|19|20)\d{2}$', born):
+        return (r['lastname'].upper(), born, r.get('died', ''))
+    return (r['lastname'].upper(), born)
 
 
 def merge_fields(ra: dict, rb: dict) -> tuple[dict, bool]:
@@ -727,11 +740,161 @@ def apply_name_corrections(records: list[dict]) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Post-processing: fix name fusions
+# ---------------------------------------------------------------------------
+
+# Common German male/female first names that OCR fuses with the surname.
+# Sorted longest-first so "PAULBERNHARD" splits at "PAULBERNHARD" rather than "PAUL".
+_GERMAN_FIRST_NAMES = sorted([
+    'AUGUST', 'AUGUSTIN', 'ALFRED', 'ALOIS', 'ALBERT', 'ANDREAS', 'ARTUR', 'ARTHUR',
+    'BERNHARD', 'BRUNO',
+    'CHRISTIAN', 'CHRISTOPH',
+    'DIETRICH',
+    'EDGAR', 'EDMUND', 'EDUARD', 'EDWARD', 'EGON', 'ERICH', 'ERNST', 'ERWIN',
+    'EUGEN',
+    'FELIX', 'FRANZ', 'FRIEDRICH', 'FRITZ',
+    'GEORG', 'GERHARD', 'GOTTFRIED', 'GÜNTHER', 'GUNTER', 'GUSTAV',
+    'HANS', 'HARRY', 'HEINRICH', 'HELMUT', 'HERBERT', 'HORST',
+    'JAKOB', 'JOHANNIS', 'JOHANNNES', 'JOHANNES', 'JOHANN', 'JOSEF', 'JOSEPH', 'JULIUS',
+    'KARL', 'KONRAD', 'KURT',
+    'LEOPOLD', 'LORENZ', 'LUDWIG',
+    'MARTIN', 'MAX', 'MEHMED',
+    'NIKOLAUS',
+    'OSKAR', 'OTTO',
+    'PAUL', 'PETER',
+    'RICHARD', 'ROBERT', 'ROLAND', 'RUDOLF',
+    'SIEGFRIED',
+    'ULRICH',
+    'WALTER', 'WERNER', 'WILLI', 'WILHELM', 'WILLIBALD', 'WILLY',
+    'ALBIN', 'ALFONS', 'ANTON', 'ARNOLD',
+    'CURT',
+    'DIETER',
+    'EMMERICH', 'ENGELBERT',
+    'FERDINAND', 'FLORIAN',
+    'GREGOR',
+    'HANS-GEORG', 'HANS-JOACHIM', 'HANNS',
+    'IGNAZ',
+    'JOACHIM', 'JOHANNES', 'JONNY', 'JÜRGEN',
+    'KLEMENS', 'KUNO',
+    'LOTHAR',
+    'MANFRED', 'MARKUS', 'MATHIAS', 'MATTHIAS', 'MICHAEL',
+    'NORBERT',
+    'PHILIPP',
+    'RAINER', 'REINHARD', 'REINHOLD', 'ROLF',
+    'STEPHAN', 'STEFAN',
+    'THEODOR', 'THOMAS',
+    'VALENTIN', 'VIKTOR',
+    'WOLFRAM', 'WOLFGANG',
+    # Short names last (avoid over-triggering on surname prefixes)
+    'ADAM', 'ALBER', 'ALEX',
+    'BENNO',
+    'CLAUS',
+    'EMILIO', 'EMILE', 'EMIL',
+    'FELIX',
+    'GEORG',
+    'HEINI', 'HEINZ', 'HELGE', 'HENRY',
+    'HUGO',
+    'IVAN',
+    'JAN',
+    'LEO', 'LEON',
+    'NICO',
+    'OTTO',
+], key=len, reverse=True)
+
+
+def fix_name_fusions(records: list[dict], verbose: bool = True) -> list[dict]:
+    """Fix three OCR name-fusion patterns:
+
+    B) firstname == lastname (same value in both fields), e.g.
+       WILHELM-SKOWRONEK,WILHELM-SKOWRONEK → WILHELM,SKOWRONEK
+       Caused by dirt/OCR artifact hyphenating first and last name.
+
+    C) lastname leaked into firstname (last word of firstname == lastname), e.g.
+       HEINZ SCHOLZ,SCHOLZ → HEINZ,SCHOLZ
+       Caused by OCR repeating the surname token.
+
+    A) Fused first+last name in lastname with empty firstname, e.g.
+       '',RUDOLFSTEHMANN → RUDOLF,STEHMANN
+       Caused by OCR missing the space between names; detected by known first-name
+       prefixes.
+    """
+    fixed = 0
+    result = []
+    for r in records:
+        r = dict(r)
+        fn = r.get('firstname', '') or ''
+        ln = r.get('lastname',  '') or ''
+
+        # B: fn == ln (duplicate) with hyphen → split on first hyphen
+        if fn and fn == ln and '-' in fn:
+            parts = fn.split('-', 1)
+            r['firstname'] = parts[0]
+            r['lastname']  = parts[1]
+            fixed += 1
+
+        # C: lastname is the last space-separated word of firstname → strip it
+        elif ln and ' ' in fn and fn.rsplit(None, 1)[-1] == ln:
+            candidate = fn.rsplit(None, 1)[0].strip()
+            if candidate:
+                r['firstname'] = candidate
+                fixed += 1
+
+        # A: empty firstname, lastname is a fused FIRSTNAME+SURNAME → split
+        elif not fn and ln and '-' not in ln and len(ln) > 8:
+            for name in _GERMAN_FIRST_NAMES:
+                if ln.startswith(name) and len(ln) > len(name):
+                    r['firstname'] = name
+                    r['lastname']  = ln[len(name):]
+                    fixed += 1
+                    break
+
+        result.append(r)
+
+    if fixed and verbose:
+        print(f"  Fixed {fixed} name fusion(s) (patterns A/B/C)")
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Post-processing: manual corrections
 # ---------------------------------------------------------------------------
 
 MANUAL_CORRECTIONS_FILE = "manual_corrections.csv"
 MANUAL_FIELDNAMES       = ['action', 'tafel', 'firstname', 'lastname', 'born', 'died']
+
+
+def _insert_sorted(records: list[dict], new_rec: dict, norm_fn) -> None:
+    """Insert *new_rec* into *records* at the right alphabetical position.
+
+    Phase 1: if records with the same lastname exist, insert by firstname order.
+    Phase 2: otherwise insert before the first record with a greater lastname.
+    Falls back to append if neither condition is met.
+    """
+    new_ln = norm_fn(new_rec.get('lastname', ''))
+    new_fn = norm_fn(new_rec.get('firstname', ''))
+    first_same_ln:    int | None = None
+    after_smaller:    int | None = None
+    first_greater_ln: int | None = None
+
+    for i, r in enumerate(records):
+        r_ln = norm_fn(r.get('lastname', ''))
+        r_fn = norm_fn(r.get('firstname', ''))
+        if r_ln == new_ln:
+            if first_same_ln is None:
+                first_same_ln = i
+            if r_fn <= new_fn:
+                after_smaller = i + 1
+        elif r_ln > new_ln and first_greater_ln is None:
+            first_greater_ln = i
+
+    if first_same_ln is not None:
+        pos = after_smaller if after_smaller is not None else first_same_ln
+    elif first_greater_ln is not None:
+        pos = first_greater_ln
+    else:
+        records.append(new_rec)
+        return
+    records.insert(pos, new_rec)
 
 
 def apply_manual_corrections(
@@ -774,8 +937,8 @@ def apply_manual_corrections(
     deletes = 0
 
     for c in corrections:
-        action = c.get('action', '').strip().lower()
-        key    = _key(c.get('tafel',''), c.get('lastname',''), c.get('born',''))
+        action = (c.get('action') or '').strip().lower()
+        key    = _key(c.get('tafel') or '', c.get('lastname') or '', c.get('born') or '')
 
         if action == 'add':
             if key not in existing_keys:
@@ -787,12 +950,36 @@ def apply_manual_corrections(
                     'died':      correct_died_year(c.get('died','').strip()),
                     'source':    'manual',
                 }
-                all_records.append(new_rec)
+                # Insert at the right alphabetical position within the tafel block.
+                # Strategy:
+                #   Phase 1: If records with the same lastname exist, insert among
+                #            them by firstname order (immune to out-of-order noise).
+                #   Phase 2: Otherwise, find the first record whose lastname sorts
+                def _norm(s: str) -> str:
+                    return s.upper().translate(
+                        str.maketrans('ÄÖÜÁÉÍÓÚ', 'AOUAEIOU')
+                    )
+                # Build a tafel-only slice for insertion so the global index
+                # scan stops at the right block boundary.
+                target_tafel = c['tafel'].strip()
+                tafel_recs   = [(i, r) for i, r in enumerate(all_records)
+                                if r.get('tafel') == target_tafel]
+                tafel_slice  = [r for _, r in tafel_recs]
+                _insert_sorted(tafel_slice, new_rec, _norm)
+                # Find where new_rec ended up in the slice and map to global index
+                new_pos_in_slice = tafel_slice.index(new_rec)
+                if new_pos_in_slice < len(tafel_recs):
+                    global_insert = tafel_recs[new_pos_in_slice][0]
+                    all_records.insert(global_insert, new_rec)
+                else:
+                    # New record is last in slice → insert after last tafel record
+                    all_records.insert(tafel_recs[-1][0] + 1, new_rec) \
+                        if tafel_recs else all_records.append(new_rec)
                 existing_keys.add(key)
-                # Add to per_file_data under any matching fname key
+                # Add to per_file_data at the same alphabetical position
                 for fname, recs in per_file_data.items():
                     if label_from_filename(fname) == c['tafel'].strip():
-                        recs.append(new_rec)
+                        _insert_sorted(recs, new_rec, _norm)
                         break
                 adds += 1
 
@@ -812,6 +999,7 @@ def apply_manual_corrections(
             for fname in per_file_data:
                 per_file_data[fname] = [r for r in per_file_data[fname]
                                         if _key(r['tafel'], r['lastname'], r['born']) != key]
+            existing_keys.discard(key)   # allow a subsequent 'add' with the same key
             deletes += 1
 
     print(f"Manual corrections applied: {adds} added, {updates} updated, {deletes} deleted")
@@ -861,6 +1049,12 @@ def main():
     all_records = normalize_name_umlauts(all_records)
     print("Post-processing: applying explicit name corrections…")
     all_records = apply_name_corrections(all_records)
+    print("Post-processing: fixing name fusions (patterns A/B/C)…")
+    all_records = fix_name_fusions(all_records)
+    # fix_name_fusions creates new dicts, so the key-based lookup below would miss
+    # records whose lastname changed (e.g. EDUARDTESKE → TESKE). Apply directly.
+    for fname in per_file_data:
+        per_file_data[fname] = fix_name_fusions(per_file_data[fname], verbose=False)
     # Propagate umlaut/name fixes back into per_file_data
     per_file_lookup: dict[tuple, dict] = {
         (r['tafel'], r['lastname'], r['born']): r for r in all_records
