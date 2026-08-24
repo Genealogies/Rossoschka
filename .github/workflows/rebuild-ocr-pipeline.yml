@@ -7,7 +7,7 @@ on:
 jobs:
   rebuild:
     runs-on: macos-15  # Apple Silicon (ARM64) — required for Apple Vision OCR Swift scripts
-    timeout-minutes: 45
+    timeout-minutes: 65
 
     steps:
       - name: Checkout repository
