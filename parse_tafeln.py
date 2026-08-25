@@ -132,7 +132,7 @@ NAME_PREFIXES = {'DR', 'PROF', 'JR', 'SR', 'H', 'J', 'K', 'W', 'F', 'E', 'G'}
 SECTION_LABEL = re.compile(r'^[A-ZÄÖÜ]$')
 
 
-_NAME_NORM = str.maketrans({'İ': 'I', 'É': 'E', 'À': 'A', 'È': 'E', 'Ü': 'Ü'})
+_NAME_NORM = str.maketrans({'İ': 'I', 'É': 'E', 'À': 'A', 'È': 'E'})
 
 
 def is_name_token(tok: str) -> bool:

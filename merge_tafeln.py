@@ -184,6 +184,7 @@ _OCR_IN_YEAR = [
 def normalize_name_chars(s: str) -> str:
     """Normalize accented/special chars in names to uppercase German-compatible equivalents.
     Preserves Ä, Ö, Ü. Converts ß→SS, Ł→L, Á→A, Ç→C, etc. Strips bracket/noise chars."""
+    s = unicodedata.normalize('NFC', s)
     return s.translate(_SPECIAL_NAME_CHARS).upper()
 
 
@@ -622,7 +623,15 @@ def _write_per_file(per_file_data: dict[str, list[dict]]):
 # ---------------------------------------------------------------------------
 
 def _strip_umlauts(s: str) -> str:
-    return s.replace('Ä','A').replace('Ö','O').replace('Ü','U')
+    """Strip umlauts and common two-letter Umlaut transcriptions (OE/AE) to a
+    plain-ASCII base for grouping purposes only — never used for actual output."""
+    s = unicodedata.normalize('NFC', s)
+    s = s.replace('Ä', 'A').replace('Ö', 'O').replace('Ü', 'U')
+    # Also collapse the two-letter transcriptions used before Umlauts were typed:
+    # OE → O (Ö), AE → A (Ä).  Applied after single-char strip so composed
+    # forms are already gone and we never double-strip.
+    s = s.replace('OE', 'O').replace('AE', 'A')
+    return s
 
 
 def normalize_name_umlauts(records: list[dict]) -> list[dict]:

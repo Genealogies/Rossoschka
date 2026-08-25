@@ -10,6 +10,31 @@ lastname,DORFFEL,DÖRFFEL
 lastname,DORINGER,DÖRINGER
 # DOERING: extra 'E' OCR noise before the missing umlaut
 lastname,DOERING,DÖRING
+# ── OE → Ö two-letter transcription (no Ö form ever appears in the data) ────
+# These names only appear in the OE form; the Ö form never occurs so the
+# frequency-based grouping introduced in _strip_umlauts cannot catch them.
+lastname,OEHME,ÖHME
+lastname,OEHMICHEN,ÖHMICHEN
+lastname,OEHLER,ÖHLER
+lastname,OEHLERKING,ÖHLERKING
+lastname,OEHLRICHS,ÖHLRICHS
+lastname,OEHNER,ÖHNER
+lastname,OEHRING,ÖHRING
+lastname,LOEPER,LÖPER
+lastname,LOESER,LÖSER
+lastname,LOEBLEIN,LÖBLEIN
+lastname,LOEGEL,LÖGEL
+lastname,LOETZKE,LÖTZKE
+lastname,FROEMMING,FRÖMMING
+lastname,FROESE,FRÖSE
+lastname,GOEBBELS,GÖBBELS
+lastname,GOETZE,GÖTZE
+lastname,GOERZEN,GÖRZEN
+# ── OE/AE from extended grouping — rare Dutch name where OE is correct ────
+# VERHÖVEN is an OCR/transcription artifact of the Dutch surname VERHOEVEN.
+# After the OE→O grouping step VERHOEVEN would be erroneously normalised to
+# VERHÖVEN (the umlaut form wins by frequency); this entry corrects that.
+lastname,VERHÖVEN,VERHOEVEN
 # ── J/O confusion in first names ───────────────────────────────────────────
 # OCR misreads 'J' as 'O' or misses the leading 'J' in JOHANN.
 firstname,OHANN,JOHANN
