@@ -31,4 +31,9 @@ jobs:
 
       - name: Show full diff
         if: always()
-        run: git --no-pager diff
+        run: |
+          git --no-pager diff
+          if ! git diff --quiet; then
+            echo "ERROR: Unexpected changes detected in working tree"
+            exit 1
+          fi
