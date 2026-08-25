@@ -40,6 +40,7 @@ jobs:
 
       - name: Zip changed files
         if: github.event_name == 'pull_request'
+        shell: bash
         run: |
           mapfile -t changed < <(git diff --name-only)
           mapfile -t untracked < <(git ls-files --others --exclude-standard)
