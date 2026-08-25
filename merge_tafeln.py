@@ -623,14 +623,10 @@ def _write_per_file(per_file_data: dict[str, list[dict]]):
 # ---------------------------------------------------------------------------
 
 def _strip_umlauts(s: str) -> str:
-    """Strip umlauts and common two-letter Umlaut transcriptions (OE/AE) to a
-    plain-ASCII base for grouping purposes only — never used for actual output."""
+    """Strip single-character umlauts (Ä/Ö/Ü) to a plain-ASCII base for
+    grouping purposes only — never used for actual output."""
     s = unicodedata.normalize('NFC', s)
     s = s.replace('Ä', 'A').replace('Ö', 'O').replace('Ü', 'U')
-    # Also collapse the two-letter transcriptions used before Umlauts were typed:
-    # OE → O (Ö), AE → A (Ä).  Applied after single-char strip so composed
-    # forms are already gone and we never double-strip.
-    s = s.replace('OE', 'O').replace('AE', 'A')
     return s
 
 
