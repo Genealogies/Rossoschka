@@ -37,3 +37,23 @@ jobs:
             echo "ERROR: Unexpected changes detected in working tree"
             exit 1
           fi
+
+      - name: Zip changed files
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          mapfile -t changed < <(git diff --name-only)
+          mapfile -t untracked < <(git ls-files --others --exclude-standard)
+          all=("${changed[@]}" "${untracked[@]}")
+          if [ ${#all[@]} -gt 0 ]; then
+            zip changed_files.zip "${all[@]}"
+          else
+            echo "No changed files to zip"
+          fi
+
+      - name: Upload changed files artifact
+        if: github.event_name == 'pull_request' && hashFiles('changed_files.zip') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: changed-files
+          path: changed_files.zip
