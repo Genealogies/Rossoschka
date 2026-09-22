@@ -38,11 +38,11 @@ from collections import defaultdict
 # Config
 # ---------------------------------------------------------------------------
 
-DIR_A        = "rossoschka_tafeln_text"
-DIR_B        = "rossoschka_text_vision"
-OUT_CSV       = "rossoschka_merged.csv"
-OUT_REPORT    = "rossoschka_merge_report.txt"
-PER_FILE_DIR  = "rossoschka_tafeln_textlist"
+DIR_A        = "rossoschka_tafeln_text_gefallen"
+DIR_B        = "rossoschka_text_vision_gefallen"
+OUT_CSV       = "rossoschka_merged_gefallen.csv"
+OUT_REPORT    = "rossoschka_merge_report_gefallen.txt"
+PER_FILE_DIR  = "rossoschka_tafeln_textlist_gefallen"
 FIELDNAMES    = ['tafel', 'firstname', 'lastname', 'born', 'died', 'source']
 PF_FIELDNAMES = ['tafel', 'firstname', 'lastname', 'born', 'died']   # no source col in per-file
 
@@ -598,7 +598,7 @@ def merge_two_lists(
 
 def _write_per_file(per_file_data: dict[str, list[dict]]):
     """
-    Write one CSV per tafel into rossoschka_tafeln_textlist/, overwriting
+    Write one CSV per tafel into rossoschka_tafeln_textlist_gefallen/, overwriting
     any existing files so they reflect the merged (A+B) data.
     Records are sorted by lastname then born for consistent ordering.
     """
@@ -1078,7 +1078,7 @@ def main():
         print(f"Wrote {len(all_records):,} merged records → {OUT_CSV}")
 
     # -------------------------------------------------------------------
-    # Write per-file CSVs into rossoschka_tafeln_textlist/
+    # Write per-file CSVs into rossoschka_tafeln_textlist_gefallen/
     # -------------------------------------------------------------------
     if per_file and not report_only:
         _write_per_file(per_file_data)

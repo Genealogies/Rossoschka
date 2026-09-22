@@ -7,8 +7,8 @@ import Vision
 import AppKit
 import Foundation
 
-let srcDir  = "rossoschka_tafeln"
-let destDir = "rossoschka_tafeln_text"
+let srcDir  = "rossoschka_tafeln_gefallen"
+let destDir = "rossoschka_tafeln_text_gefallen"
 let langs   = ["de-DE", "en-US"]  // German primary, English fallback
 
 // --- Setup ---

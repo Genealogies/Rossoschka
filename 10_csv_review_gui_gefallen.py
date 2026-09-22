@@ -34,8 +34,8 @@ from PIL import Image, ImageDraw, ImageTk
 # Paths
 # ---------------------------------------------------------------------------
 REPO_DIR     = os.path.dirname(os.path.abspath(__file__))
-CSV_DIR      = "rossoschka_tafeln_textlist"
-PNG_DIR      = "rossoschka_tafeln"
+CSV_DIR      = "rossoschka_tafeln_textlist_gefallen"
+PNG_DIR      = "rossoschka_tafeln_gefallen"
 BOXES_SCRIPT = os.path.join(REPO_DIR, "get_word_boxes.swift")
 
 # ---------------------------------------------------------------------------
@@ -876,7 +876,7 @@ class ReviewApp(tk.Tk):
 def main() -> None:
     modified = get_modified_files()
     if not modified:
-        print('No modified CSV files found in rossoschka_tafeln_textlist/')
+        print('No modified CSV files found in rossoschka_tafeln_textlist_gefallen/')
         sys.exit(0)
     print(f'{len(modified)} modified CSV files.')
     ReviewApp(modified).mainloop()

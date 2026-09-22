@@ -22,10 +22,10 @@ import csv
 import sys
 import unicodedata
 
-TEXT_DIR    = "rossoschka_text_vision"
-TAFELN_DIR  = "rossoschka_tafeln"
-OUTPUT_CSV  = "rossoschka_parsed.csv"
-PER_FILE_DIR = "rossoschka_tafeln_textlist"
+TEXT_DIR    = "rossoschka_text_vision_gefallen"
+TAFELN_DIR  = "rossoschka_tafeln_gefallen"
+OUTPUT_CSV  = "rossoschka_parsed_gefallen.csv"
+PER_FILE_DIR = "rossoschka_tafeln_textlist_gefallen"
 FIELDNAMES  = ['tafel', 'firstname', 'lastname', 'born', 'died']
 
 # ---------------------------------------------------------------------------
@@ -561,7 +561,7 @@ def _fname_key(stem: str):
 
 
 def _build_per_file_output():
-    """Write one CSV per tafeln PNG into rossoschka_tafeln_textlist/."""
+    """Write one CSV per tafeln PNG into rossoschka_tafeln_textlist_gefallen/."""
     os.makedirs(PER_FILE_DIR, exist_ok=True)
 
     # Index 1: original files (24xxx-...) by year-num key from their content

@@ -7,7 +7,7 @@ import Vision
 import AppKit
 import Foundation
 
-let tafelnDir = "rossoschka_tafeln"
+let tafelnDir = "rossoschka_tafeln_gefallen"
 let langs     = ["de-DE", "en-US"]
 
 let fm  = FileManager.default

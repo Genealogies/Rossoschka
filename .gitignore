@@ -1,4 +1,7 @@
 .idea
-rossoschka_tafeln_text
-rossoschka_text_vision
-__pycache__
+__pycache__/
+rossoschka_merge_report.txt
+rossoschka_text_gefallen_vision/
+rossoschka_tafeln_gefallen_text/
+rossoschka_text_vermisste_vision/
+rossoschka_tafeln_vermisste_text/

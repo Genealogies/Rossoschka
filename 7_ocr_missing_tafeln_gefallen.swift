@@ -7,7 +7,7 @@ import Vision
 import AppKit
 import Foundation
 
-let tafelnDir  = "rossoschka_tafeln"
+let tafelnDir  = "rossoschka_tafeln_gefallen"
 let textDir    = "rossoschka_text_vision"
 let langs      = ["de-DE", "en-US"]
 

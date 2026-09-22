@@ -10,8 +10,8 @@ import os
 import sys
 import subprocess
 
-SRC_DIR  = "rossoschka_final"
-DEST_DIR = "rossoschka_text"
+SRC_DIR  = "rossoschka_final_gefallen"
+DEST_DIR = "rossoschka_text_gefallen"
 LANGS    = "deu+eng"   # German primary, English fallback
 TESSERACT = "/opt/homebrew/bin/tesseract"
 
